@@ -65,6 +65,7 @@ class Worker:
     def run_episode(self, training=True, sample=False, max_waiting=False):
         buffer_dict = {idx: [] for idx in range(7)}
         perf_metrics = {}
+        computation_times = []
         current_action_index = 0
         decision_step = 0
         while (
@@ -72,6 +73,7 @@ class Worker:
             and self.env.current_time < EnvParams.MAX_TIME
             and current_action_index < 300
         ):
+            start = time.time()
             with torch.no_grad():
                 release_agents, current_time = self.env.next_decision()
                 self.env.current_time = current_time
@@ -126,6 +128,7 @@ class Worker:
                         current_action_index += 1
                 self.env.finished = self.env.check_finished()
                 decision_step += 1
+                computation_times.append(time.time() - start)
 
         terminal_reward, finished_tasks = self.env.get_episode_reward(self.max_time)
 
@@ -141,6 +144,9 @@ class Worker:
             np.sum(self.env.get_matrix(self.env.agent_dic, "travel_dist"))
         ]
         perf_metrics["efficiency"] = [self.env.get_efficiency()]
+
+        perf_metrics["time_per_decision"] = [np.mean(computation_times)]
+
         return terminal_reward, buffer_dict, perf_metrics
 
     def baseline_test(self):
