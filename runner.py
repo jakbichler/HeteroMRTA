@@ -1,11 +1,12 @@
-import torch
+import os
+
 import numpy as np
 import ray
-import os
+import torch
 from attention import AttentionNet
-from worker import Worker
-from parameters import *
 from env.task_env import TaskEnv
+from parameters import *
+from worker import Worker
 
 
 class Runner(object):
@@ -14,10 +15,14 @@ class Runner(object):
 
     def __init__(self, metaAgentID):
         self.metaAgentID = metaAgentID
-        self.device = torch.device('cuda') if TrainParams.USE_GPU else torch.device('cpu')
-        self.localNetwork = AttentionNet(TrainParams.AGENT_INPUT_DIM, TrainParams.TASK_INPUT_DIM, TrainParams.EMBEDDING_DIM)
+        self.device = torch.device("cuda") if TrainParams.USE_GPU else torch.device("cpu")
+        self.localNetwork = AttentionNet(
+            TrainParams.AGENT_INPUT_DIM, TrainParams.TASK_INPUT_DIM, TrainParams.EMBEDDING_DIM
+        )
         self.localNetwork.to(self.device)
-        self.localBaseline = AttentionNet(TrainParams.AGENT_INPUT_DIM, TrainParams.TASK_INPUT_DIM, TrainParams.EMBEDDING_DIM)
+        self.localBaseline = AttentionNet(
+            TrainParams.AGENT_INPUT_DIM, TrainParams.TASK_INPUT_DIM, TrainParams.EMBEDDING_DIM
+        )
         self.localBaseline.to(self.device)
 
     def get_weights(self):
@@ -38,8 +43,16 @@ class Runner(object):
         if SaverParams.SAVE_IMG:
             if curr_episode % SaverParams.SAVE_IMG_GAP == 0:
                 save_img = True
-        worker = Worker(self.metaAgentID, self.localNetwork, self.localBaseline,
-                        curr_episode, self.device, save_img, None, env_params)
+        worker = Worker(
+            self.metaAgentID,
+            self.localNetwork,
+            self.localBaseline,
+            curr_episode,
+            self.device,
+            save_img,
+            None,
+            env_params,
+        )
         worker.work(curr_episode)
 
         buffer = worker.experience
@@ -53,8 +66,9 @@ class Runner(object):
         return buffer, perf_metrics, info
 
     def testing(self, seed=None):
-        worker = Worker(self.metaAgentID, self.localNetwork, self.localBaseline,
-                        0, self.device, False, seed)
+        worker = Worker(
+            self.metaAgentID, self.localNetwork, self.localBaseline, 0, self.device, False, seed
+        )
         reward = worker.baseline_test()
         return reward, seed, self.metaAgentID
 
@@ -65,7 +79,7 @@ class RLRunner(Runner):
         super().__init__(metaAgentID)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     ray.init()
     runner = RLRunner.remote(0)
     job_id = runner.singleThreadedJob.remote(1)

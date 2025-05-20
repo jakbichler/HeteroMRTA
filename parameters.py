@@ -34,13 +34,12 @@ class TrainParams:
 
 
 class SaverParams:
-    FOLDER_NAME = 'save_1'
-    MODEL_PATH = f'model/{FOLDER_NAME}'
-    TRAIN_PATH = f'train/{FOLDER_NAME}'
-    GIFS_PATH = f'gifs/{FOLDER_NAME}'
+    FOLDER_NAME = "save_1"
+    MODEL_PATH = f"model/{FOLDER_NAME}"
+    TRAIN_PATH = f"train/{FOLDER_NAME}"
+    GIFS_PATH = f"gifs/{FOLDER_NAME}"
     LOAD_MODEL = False
-    LOAD_FROM = 'current'  # 'best'
+    LOAD_FROM = "current"  # 'best'
     SAVE = True
     SAVE_IMG = True
     SAVE_IMG_GAP = 1000
-
