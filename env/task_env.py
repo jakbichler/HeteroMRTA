@@ -21,6 +21,7 @@ class TaskEnv:
         duration_scale=5,
         seed=None,
         plot_figure=False,
+        precedence_constraints=None,
     ):
         """
         :param traits_dim: number of capabilities in this problem, e.g. 3 traits
@@ -53,6 +54,7 @@ class TaskEnv:
         self.depot_waiting_time = 0
         self.finished = False
         self.reactive_planning = False
+        self.precedence_constraints = precedence_constraints or []
 
     def random_int(self, low, high, size=None):
         if self.rng is not None:
@@ -587,11 +589,21 @@ class TaskEnv:
             waiting_len = np.sum(waiting_tasks_mask == 0)
             if waiting_len > 5:
                 mask = np.logical_or(mask, waiting_tasks_mask)
+
+        # Precedence constraints are between T in [1.... M] for real tasks
+        for predecessor, successor in self.precedence_constraints:
+            predecessor_id = predecessor - 1
+            successor_id = successor - 1
+            # if predecessor task pred hasn’t finished, forbid choosing succ
+            if not self.task_dic[predecessor_id]["finished"]:
+                mask[successor_id] = True
+
         mask = np.insert(mask, 0, False)
         # if mask.all():
         #     mask = np.insert(mask, 0, False)
         # else:
         #     mask = np.insert(mask, 0, True)
+
         agents_info = np.expand_dims(self.get_current_agent_status(agent), axis=0)
         tasks_info = np.expand_dims(self.get_current_task_status(agent), axis=0)
         mask = np.expand_dims(mask, axis=0)

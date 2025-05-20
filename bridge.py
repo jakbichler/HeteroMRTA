@@ -1,16 +1,11 @@
 import os
 import pickle
-import sys
 
 import numpy as np
 
-# TO-DO: FIX IMPORTS
-sys.path.append(os.path.abspath("/home/jakob/HeteroMRTA/"))
-sys.path.append("../..")
-
-from env.task_env import TaskEnv
-
 from data_generation.problem_generator import generate_random_data_with_precedence
+
+from .env.task_env import TaskEnv
 
 
 def problem_to_taskenv(problem_instance, grid_size, duration_factor):
@@ -40,7 +35,7 @@ def problem_to_taskenv(problem_instance, grid_size, duration_factor):
         for k in range(len(R))
     ]
 
-    env = TaskEnv(traits_dim=5)
+    env = TaskEnv(traits_dim=5, precedence_constraints=problem_instance["precedence_constraints"])
     env.reset(test_env=build_env(tasks, species_specs))
     return env
 
