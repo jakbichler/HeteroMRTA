@@ -1,18 +1,24 @@
+import math
+
+import numpy as np
 import torch
 import torch.nn as nn
-import math
-import numpy as np
-from torch.nn.utils.rnn import pad_sequence
 from torch.cuda.amp.autocast_mode import autocast
-from parameters import *
+from torch.nn.utils.rnn import pad_sequence
+
+from .parameters import *
 
 
 def get_attn_pad_mask(seq_q, seq_k):
     batch_size, len_q = seq_q.sum(dim=2).size()
     batch_size, len_k = seq_k.sum(dim=2).size()
     # eq(zero) is PAD token
-    pad_attn_mask_k = seq_q.eq(0).all(2).data.eq(1).unsqueeze(1)  # batch_size x 1 x len_q, one is masking
-    pad_attn_mask_q = seq_k.eq(0).all(2).data.eq(1).unsqueeze(1)  # batch_size x 1 x len_k, one is masking
+    pad_attn_mask_k = (
+        seq_q.eq(0).all(2).data.eq(1).unsqueeze(1)
+    )  # batch_size x 1 x len_q, one is masking
+    pad_attn_mask_q = (
+        seq_k.eq(0).all(2).data.eq(1).unsqueeze(1)
+    )  # batch_size x 1 x len_k, one is masking
     pad_attn_mask_k = pad_attn_mask_k.expand(batch_size, len_k, len_q).permute(0, 2, 1)
     pad_attn_mask_q = pad_attn_mask_q.expand(batch_size, len_q, len_k)
     return ~torch.logical_and(~pad_attn_mask_k, ~pad_attn_mask_q)  # batch_size x len_q x len_k
@@ -42,17 +48,17 @@ class SingleHeadAttention(nn.Module):
 
     def init_parameters(self):
         for param in self.parameters():
-            stdv = 1. / math.sqrt(param.size(-1))
+            stdv = 1.0 / math.sqrt(param.size(-1))
             param.data.uniform_(-stdv, stdv)
 
     def forward(self, q, h=None, mask=None):
         """
-                :param q: queries (batch_size, n_query, input_dim)
-                :param h: data (batch_size, graph_size, input_dim)
-                :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
-                Mask should contain 1 if attention is not possible (i.e. mask is negative adjacency)
-                :return:
-                """
+        :param q: queries (batch_size, n_query, input_dim)
+        :param h: data (batch_size, graph_size, input_dim)
+        :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
+        Mask should contain 1 if attention is not possible (i.e. mask is negative adjacency)
+        :return:
+        """
         if h is None:
             h = q
 
@@ -101,17 +107,17 @@ class MultiHeadAttention(nn.Module):
 
     def init_parameters(self):
         for param in self.parameters():
-            stdv = 1. / math.sqrt(param.size(-1))
+            stdv = 1.0 / math.sqrt(param.size(-1))
             param.data.uniform_(-stdv, stdv)
 
     def forward(self, q, h=None, mask=None):
         """
-                :param q: queries (batch_size, n_query, input_dim)
-                :param h: data (batch_size, graph_size, input_dim)
-                :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
-                Mask should contain 1 if attention is not possible (i.e. mask is negative adjacency)
-                :return:
-                """
+        :param q: queries (batch_size, n_query, input_dim)
+        :param h: data (batch_size, graph_size, input_dim)
+        :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
+        Mask should contain 1 if attention is not possible (i.e. mask is negative adjacency)
+        :return:
+        """
         if h is None:
             h = q
 
@@ -125,10 +131,16 @@ class MultiHeadAttention(nn.Module):
         shape_q = (self.n_heads, batch_size, n_query, -1)
 
         Q = torch.matmul(q_flat, self.w_query).view(shape_q)  # n_heads*batch_size*n_query*key_dim
-        K = torch.matmul(h_flat, self.w_key).view(shape_k)  # n_heads*batch_size*targets_size*key_dim
-        V = torch.matmul(h_flat, self.w_value).view(shape_v)  # n_heads*batch_size*targets_size*value_dim
+        K = torch.matmul(h_flat, self.w_key).view(
+            shape_k
+        )  # n_heads*batch_size*targets_size*key_dim
+        V = torch.matmul(h_flat, self.w_value).view(
+            shape_v
+        )  # n_heads*batch_size*targets_size*value_dim
 
-        U = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))  # n_heads*batch_size*n_query*targets_size
+        U = self.norm_factor * torch.matmul(
+            Q, K.transpose(2, 3)
+        )  # n_heads*batch_size*n_query*targets_size
 
         if mask is not None:
             mask = mask.view(1, batch_size, -1, target_size).expand_as(U)  # copy for n_heads times
@@ -147,7 +159,7 @@ class MultiHeadAttention(nn.Module):
         out = torch.mm(
             heads.permute(1, 2, 0, 3).reshape(-1, self.n_heads * self.value_dim),
             # batch_size*n_query*n_heads*value_dim
-            self.w_out.view(-1, self.embedding_dim)
+            self.w_out.view(-1, self.embedding_dim),
             # n_heads*value_dim*embedding_dim
         ).view(batch_size, n_query, self.embedding_dim)
 
@@ -256,7 +268,9 @@ class AttentionNet(nn.Module):
     def __init__(self, agent_input_dim, task_input_dim, embedding_dim):
         super(AttentionNet, self).__init__()
         self.agent_embedding = nn.Linear(agent_input_dim, embedding_dim)
-        self.task_embedding = nn.Linear(task_input_dim, embedding_dim)  # layer for input information
+        self.task_embedding = nn.Linear(
+            task_input_dim, embedding_dim
+        )  # layer for input information
         self.fusion = nn.Linear(embedding_dim * 3, embedding_dim)
 
         self.taskEncoder = Encoder(embedding_dim=embedding_dim, n_head=8, n_layer=1)
@@ -271,7 +285,7 @@ class AttentionNet(nn.Module):
         task_embedding = self.task_embedding(task_inputs)
         task_encoding = self.taskEncoder(task_embedding, mask)
         embedding_dim = task_encoding.size(-1)
-        mean_mask = mask[:,0,:].unsqueeze(2).repeat(1, 1, embedding_dim)
+        mean_mask = mask[:, 0, :].unsqueeze(2).repeat(1, 1, embedding_dim)
         compressed_task = torch.where(mean_mask, torch.nan, task_embedding)
         aggregated_tasks = torch.nanmean(compressed_task, dim=1).unsqueeze(1)
         return aggregated_tasks, task_encoding
@@ -280,7 +294,7 @@ class AttentionNet(nn.Module):
         agents_embedding = self.agent_embedding(agents_inputs)
         agents_encoding = self.agentEncoder(agents_embedding, mask)
         embedding_dim = agents_encoding.size(-1)
-        mean_mask = mask[:,0,:].unsqueeze(2).repeat(1, 1, embedding_dim)
+        mean_mask = mask[:, 0, :].unsqueeze(2).repeat(1, 1, embedding_dim)
         compressed_task = torch.where(mean_mask, torch.nan, agents_embedding)
         aggregated_agents = torch.nanmean(compressed_task, dim=1).unsqueeze(1)
         return aggregated_agents, agents_encoding
@@ -292,11 +306,21 @@ class AttentionNet(nn.Module):
         agent_task_mask = get_attn_pad_mask(agents, tasks)
         aggregated_task, task_encoding = self.encoding_tasks(tasks, mask=task_mask)
         aggregated_agents, agents_encoding = self.encoding_agents(agents, mask=agent_mask)
-        task_agent_feature = self.crossDecoder1(task_encoding, agents_encoding, None, task_agent_mask)
-        agent_task_feature = self.crossDecoder2(agents_encoding, task_encoding, None, agent_task_mask)
-        current_state1 = torch.gather(agent_task_feature, 1, index.repeat(1, 1, agent_task_feature.size(2)))
-        current_state = self.fusion(torch.cat((current_state1, aggregated_task, aggregated_agents), dim=-1))
-        current_state_prime = self.globalDecoder(current_state, task_agent_feature, None, global_mask)
+        task_agent_feature = self.crossDecoder1(
+            task_encoding, agents_encoding, None, task_agent_mask
+        )
+        agent_task_feature = self.crossDecoder2(
+            agents_encoding, task_encoding, None, agent_task_mask
+        )
+        current_state1 = torch.gather(
+            agent_task_feature, 1, index.repeat(1, 1, agent_task_feature.size(2))
+        )
+        current_state = self.fusion(
+            torch.cat((current_state1, aggregated_task, aggregated_agents), dim=-1)
+        )
+        current_state_prime = self.globalDecoder(
+            current_state, task_agent_feature, None, global_mask
+        )
         probs, logps = self.pointer(current_state_prime, task_agent_feature, mask=global_mask)
         logps = logps.squeeze(1)
         probs = probs.squeeze(1)
@@ -310,4 +334,3 @@ def padding_inputs(inputs):
     ones = torch.ones_like(seq, dtype=torch.int64)
     mask = torch.where(seq != 1, mask, ones)
     return seq, mask
-

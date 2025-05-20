@@ -1,15 +1,17 @@
-import pickle
-import time
-import torch
-import numpy as np
-import random
-from env.task_env import TaskEnv
-from attention import AttentionNet
-import scipy.signal as signal
-from parameters import *
 import copy
-from torch.nn import functional as F
+import pickle
+import random
+import time
+
+import numpy as np
+import scipy.signal as signal
+import torch
 from torch.distributions import Categorical
+from torch.nn import functional as F
+
+from .attention import AttentionNet
+from .env.task_env import TaskEnv
+from .parameters import *
 
 
 def discount(x, gamma):
@@ -23,48 +25,82 @@ def zero_padding(x, padding_size, length):
 
 
 class Worker:
-    def __init__(self, mete_agent_id, local_network, local_baseline, global_step,
-                 device='cuda', save_image=False, seed=None, env_params=None):
-
+    def __init__(
+        self,
+        mete_agent_id,
+        local_network,
+        local_baseline,
+        global_step,
+        device="cuda",
+        save_image=False,
+        seed=None,
+        env_params=None,
+    ):
         self.device = device
         self.metaAgentID = mete_agent_id
         self.global_step = global_step
         self.save_image = save_image
         if env_params is None:
-            env_params = [EnvParams.SPECIES_AGENTS_RANGE, EnvParams.SPECIES_RANGE, EnvParams.TASKS_RANGE]
-        self.env = TaskEnv(*env_params, EnvParams.TRAIT_DIM, EnvParams.DECISION_DIM, seed=seed, plot_figure=save_image)
+            env_params = [
+                EnvParams.SPECIES_AGENTS_RANGE,
+                EnvParams.SPECIES_RANGE,
+                EnvParams.TASKS_RANGE,
+            ]
+        self.env = TaskEnv(
+            *env_params,
+            EnvParams.TRAIT_DIM,
+            EnvParams.DECISION_DIM,
+            seed=seed,
+            plot_figure=save_image,
+        )
         self.baseline_env = copy.deepcopy(self.env)
         self.local_baseline = local_baseline
         self.local_net = local_network
-        self.experience = {idx:[] for idx in range(7)}
+        self.experience = {idx: [] for idx in range(7)}
         self.episode_number = None
         self.perf_metrics = {}
         self.p_rnn_state = {}
         self.max_time = EnvParams.MAX_TIME
 
     def run_episode(self, training=True, sample=False, max_waiting=False):
-        buffer_dict = {idx:[] for idx in range(7)}
+        buffer_dict = {idx: [] for idx in range(7)}
         perf_metrics = {}
         current_action_index = 0
         decision_step = 0
-        while not self.env.finished and self.env.current_time < EnvParams.MAX_TIME and current_action_index < 300:
+        while (
+            not self.env.finished
+            and self.env.current_time < EnvParams.MAX_TIME
+            and current_action_index < 300
+        ):
             with torch.no_grad():
                 release_agents, current_time = self.env.next_decision()
                 self.env.current_time = current_time
                 random.shuffle(release_agents[0])
                 finished_task = []
                 while release_agents[0] or release_agents[1]:
-                    agent_id = release_agents[0].pop(0) if release_agents[0] else release_agents[1].pop(0)
+                    agent_id = (
+                        release_agents[0].pop(0) if release_agents[0] else release_agents[1].pop(0)
+                    )
                     agent = self.env.agent_dic[agent_id]
-                    task_info, total_agents, mask = self.convert_torch(self.env.agent_observe(agent_id, max_waiting))
+                    task_info, total_agents, mask = self.convert_torch(
+                        self.env.agent_observe(agent_id, max_waiting)
+                    )
                     block_flag = mask[0, 1:].all().item()
-                    if block_flag and not np.all(self.env.get_matrix(self.env.task_dic, 'feasible_assignment')):
-                        agent['no_choice'] = block_flag
+                    if block_flag and not np.all(
+                        self.env.get_matrix(self.env.task_dic, "feasible_assignment")
+                    ):
+                        agent["no_choice"] = block_flag
                         continue
-                    elif block_flag and np.all(self.env.get_matrix(self.env.task_dic, 'feasible_assignment')) and agent['current_task'] < 0:
+                    elif (
+                        block_flag
+                        and np.all(self.env.get_matrix(self.env.task_dic, "feasible_assignment"))
+                        and agent["current_task"] < 0
+                    ):
                         continue
                     if training:
-                        task_info, total_agents, mask = self.obs_padding(task_info, total_agents, mask)
+                        task_info, total_agents, mask = self.obs_padding(
+                            task_info, total_agents, mask
+                        )
                     index = torch.LongTensor([agent_id]).reshape(1, 1, 1).to(self.device)
                     probs, _ = self.local_net(task_info, total_agents, mask, index)
                     if training:
@@ -77,7 +113,7 @@ class Worker:
                         else:
                             action = torch.argmax(probs, dim=1)
                     r, doable, f_t = self.env.agent_step(agent_id, action.item(), decision_step)
-                    agent['current_action_index'] = current_action_index
+                    agent["current_action_index"] = current_action_index
                     finished_task.append(f_t)
                     if training and doable:
                         buffer_dict[0] += total_agents
@@ -93,12 +129,18 @@ class Worker:
 
         terminal_reward, finished_tasks = self.env.get_episode_reward(self.max_time)
 
-        perf_metrics['success_rate'] = [np.sum(finished_tasks)/len(finished_tasks)]
-        perf_metrics['makespan'] = [self.env.current_time]
-        perf_metrics['time_cost'] = [np.nanmean(self.env.get_matrix(self.env.task_dic, 'time_start'))]
-        perf_metrics['waiting_time'] = [np.mean(self.env.get_matrix(self.env.agent_dic, 'sum_waiting_time'))]
-        perf_metrics['travel_dist'] = [np.sum(self.env.get_matrix(self.env.agent_dic, 'travel_dist'))]
-        perf_metrics['efficiency'] = [self.env.get_efficiency()]
+        perf_metrics["success_rate"] = [np.sum(finished_tasks) / len(finished_tasks)]
+        perf_metrics["makespan"] = [self.env.current_time]
+        perf_metrics["time_cost"] = [
+            np.nanmean(self.env.get_matrix(self.env.task_dic, "time_start"))
+        ]
+        perf_metrics["waiting_time"] = [
+            np.mean(self.env.get_matrix(self.env.agent_dic, "sum_waiting_time"))
+        ]
+        perf_metrics["travel_dist"] = [
+            np.sum(self.env.get_matrix(self.env.agent_dic, "travel_dist"))
+        ]
+        perf_metrics["efficiency"] = [self.env.get_efficiency()]
         return terminal_reward, buffer_dict, perf_metrics
 
     def baseline_test(self):
@@ -106,7 +148,11 @@ class Worker:
         perf_metrics = {}
         current_action_index = 0
         start = time.time()
-        while not self.baseline_env.finished and self.baseline_env.current_time < self.max_time and current_action_index < 300:
+        while (
+            not self.baseline_env.finished
+            and self.baseline_env.current_time < self.max_time
+            and current_action_index < 300
+        ):
             with torch.no_grad():
                 release_agents, current_time = self.baseline_env.next_decision()
                 random.shuffle(release_agents[0])
@@ -114,14 +160,30 @@ class Worker:
                 if time.time() - start > 30:
                     break
                 while release_agents[0] or release_agents[1]:
-                    agent_id = release_agents[0].pop(0) if release_agents[0] else release_agents[1].pop(0)
+                    agent_id = (
+                        release_agents[0].pop(0) if release_agents[0] else release_agents[1].pop(0)
+                    )
                     agent = self.baseline_env.agent_dic[agent_id]
-                    task_info, total_agents, mask = self.convert_torch(self.baseline_env.agent_observe(agent_id, False))
+                    task_info, total_agents, mask = self.convert_torch(
+                        self.baseline_env.agent_observe(agent_id, False)
+                    )
                     return_flag = mask[0, 1:].all().item()
-                    if return_flag and not np.all(self.baseline_env.get_matrix(self.baseline_env.task_dic, 'feasible_assignment')): ## add condition on returning to depot
-                        self.baseline_env.agent_dic[agent_id]['no_choice'] = return_flag
+                    if return_flag and not np.all(
+                        self.baseline_env.get_matrix(
+                            self.baseline_env.task_dic, "feasible_assignment"
+                        )
+                    ):  ## add condition on returning to depot
+                        self.baseline_env.agent_dic[agent_id]["no_choice"] = return_flag
                         continue
-                    elif return_flag and np.all(self.baseline_env.get_matrix(self.baseline_env.task_dic, 'feasible_assignment')) and agent['current_task'] < 0:
+                    elif (
+                        return_flag
+                        and np.all(
+                            self.baseline_env.get_matrix(
+                                self.baseline_env.task_dic, "feasible_assignment"
+                            )
+                        )
+                        and agent["current_task"] < 0
+                    ):
                         continue
                     task_info, total_agents, mask = self.obs_padding(task_info, total_agents, mask)
                     index = torch.LongTensor([agent_id]).reshape(1, 1, 1).to(self.device)
@@ -144,7 +206,9 @@ class Worker:
         max_waiting = TrainParams.FORCE_MAX_OPEN_TASK
         for _ in range(TrainParams.POMO_SIZE):
             self.env.init_state()
-            terminal_reward, buffer, perf_metrics = self.run_episode(episode_number,True, max_waiting)
+            terminal_reward, buffer, perf_metrics = self.run_episode(
+                episode_number, True, max_waiting
+            )
             if terminal_reward is np.nan:
                 max_waiting = True
                 continue
@@ -185,17 +249,31 @@ class Worker:
 
     @staticmethod
     def obs_padding(task_info, agents, mask):
-        task_info = F.pad(task_info, (0, 0, 0, EnvParams.TASKS_RANGE[1] + 1 - task_info.shape[1]), 'constant', 0)
-        agents = F.pad(agents, (0, 0, 0, EnvParams.SPECIES_AGENTS_RANGE[1] * EnvParams.SPECIES_RANGE[1] - agents.shape[1]), 'constant', 0)
-        mask = F.pad(mask, (0, EnvParams.TASKS_RANGE[1] + 1 - mask.shape[1]), 'constant', 1)
+        task_info = F.pad(
+            task_info, (0, 0, 0, EnvParams.TASKS_RANGE[1] + 1 - task_info.shape[1]), "constant", 0
+        )
+        agents = F.pad(
+            agents,
+            (
+                0,
+                0,
+                0,
+                EnvParams.SPECIES_AGENTS_RANGE[1] * EnvParams.SPECIES_RANGE[1] - agents.shape[1],
+            ),
+            "constant",
+            0,
+        )
+        mask = F.pad(mask, (0, EnvParams.TASKS_RANGE[1] + 1 - mask.shape[1]), "constant", 1)
         return task_info, agents, mask
 
 
-if __name__ == '__main__':
-    device = torch.device('cuda')
+if __name__ == "__main__":
+    device = torch.device("cuda")
     # torch.manual_seed(9)
     # checkpoint = torch.load(SaverParams.MODEL_PATH + '/checkpoint.pth')
-    localNetwork = AttentionNet(TrainParams.AGENT_INPUT_DIM, TrainParams.TASK_INPUT_DIM, TrainParams.EMBEDDING_DIM).to(device)
+    localNetwork = AttentionNet(
+        TrainParams.AGENT_INPUT_DIM, TrainParams.TASK_INPUT_DIM, TrainParams.EMBEDDING_DIM
+    ).to(device)
     # localNetwork.load_state_dict(checkpoint['best_model'])
     for i in range(100):
         worker = Worker(1, localNetwork, localNetwork, 0, device=device, seed=i, save_image=False)
